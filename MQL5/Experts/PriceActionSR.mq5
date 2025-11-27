@@ -6,8 +6,8 @@
 #property strict
 #property copyright "Copyright 2024, MetaQuotes Software Corp."
 #property link      "https://www.mql5.com"
-#property version   "3.00"
-#property description "EA con GUI interactiva y cruce estricto para S/R en mercados volátiles."
+#property version   "4.00"
+#property description "EA con GUI, cruce estricto y filtros anti-fakeout para S/R."
 
 //--- Parámetros de entrada
 input group             "Análisis de Zonas"
@@ -17,6 +17,7 @@ input int               InpMinTouches     = 3;
 input group             "Filtro de Volatilidad (ATR)"
 input int               InpATRPeriod      = 14;
 input double            InpATRMultiplier  = 1.0;
+input double            InpBreakoutMargin = 0.2;    // Margen extra (multiplicador de ATR) para confirmar ruptura
 
 //--- Estructuras
 enum ENUM_LEVEL_TYPE { SUPPORT, RESISTANCE };
@@ -52,7 +53,7 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-   Print("PriceActionSR EA v3.0 (Interactive) inicializado.");
+   Print("PriceActionSR EA v4.0 (Anti-Fakeout) inicializado.");
    CreateInteractiveDashboard();
    DrawSRLevels();
    UpdateDashboardText();
@@ -92,7 +93,6 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
   {
    if(id == CHARTEVENT_OBJECT_CLICK)
      {
-      //--- Botón de disminuir multiplicador
       if(sparam == "SR_GUI_Btn_Minus")
         {
          g_current_atr_multiplier -= 0.1;
@@ -102,7 +102,6 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
          UpdateDashboardText();
          ChartRedraw();
         }
-      //--- Botón de aumentar multiplicador
       if(sparam == "SR_GUI_Btn_Plus")
         {
          g_current_atr_multiplier += 0.1;
@@ -111,7 +110,6 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
          UpdateDashboardText();
          ChartRedraw();
         }
-      //--- Botón de Reset
       if(sparam == "SR_GUI_Btn_Reset")
         {
          g_current_atr_multiplier = InpATRMultiplier;
@@ -236,33 +234,79 @@ void DrawValidatedLevels()
      }
   }
 //+------------------------------------------------------------------+
-//| Lógica de Cruce Estricto                                         |
+//| Lógica de Breakout con Filtros Anti-Fakeout                      |
 //+------------------------------------------------------------------+
 void CheckForBreakouts()
   {
    if(ArraySize(g_validated_levels) == 0) return;
 
-   double close[];
-   if(CopyClose(_Symbol, _Period, 1, 2, close) < 2) return;
+   //--- 1. Obtener todos los datos necesarios al inicio
+   MqlRates rates[];
+   if(CopyRates(_Symbol, _Period, 1, 2, rates) < 2) return;
 
+   double atr_buffer[];
+   if(CopyBuffer(g_atr_handle, 0, 1, 1, atr_buffer) < 1) return;
+   double atr_value = atr_buffer[0];
+
+   //--- Datos de la vela de ruptura (índice 1 del historial, pero 0 en nuestro array 'rates')
+   double open1  = rates[0].open;
+   double high1  = rates[0].high;
+   double low1   = rates[0].low;
+   double close1 = rates[0].close;
+
+   //--- Datos de la vela anterior (índice 2 del historial, pero 1 en nuestro array 'rates')
+   double close2 = rates[1].close;
+
+   //--- 2. Aplicar Filtros de Calidad de Vela
+   double total_size = high1 - low1;
+   double body_size = MathAbs(close1 - open1);
+
+   //--- Filtro de Rechazo de Mecha: si el cuerpo es menor al 50% del total, es una vela débil.
+   if(total_size > 0 && body_size < (total_size * 0.5))
+     {
+      // Print("Señal de breakout ignorada por vela de indecisión (mecha larga).");
+      return; // Ignorar esta vela para cualquier breakout
+     }
+
+   //--- 3. Iterar sobre los niveles y aplicar filtros de cruce y margen
    for(int i = 0; i < ArraySize(g_validated_levels); i++)
      {
       PriceLevel level = g_validated_levels[i];
-      if(level.level_type == RESISTANCE && close[0] > level.price && close[1] < level.price)
+      double margin = atr_value * InpBreakoutMargin;
+
+      //--- Validación para COMPRA (Ruptura de Resistencia)
+      if(level.level_type == RESISTANCE)
         {
-         string name = "SR_Arrow_Buy_" + TimeToString(iTime(_Symbol, _Period, 1), TIME_MINUTES) + "_" + DoubleToString(level.price);
-         double low[];
-         CopyLow(_Symbol, _Period, 1, 1, low);
-         ObjectCreate(0, name, OBJ_ARROW_BUY, 0, iTime(_Symbol, _Period, 1), low[0] - _Point * 10);
-         ObjectSetInteger(0, name, OBJPROP_COLOR, clrBlue);
+         // Filtro 1: Cruce Estricto
+         bool is_crossover = (close1 > level.price && close2 < level.price);
+         // Filtro 2: Margen de Ruptura ATR
+         bool has_margin = (close1 > (level.price + margin));
+
+         if(is_crossover && has_margin)
+           {
+            string name = "SR_Arrow_Buy_" + TimeToString(rates[0].time, TIME_MINUTES) + "_" + DoubleToString(level.price);
+            ObjectCreate(0, name, OBJ_ARROW_BUY, 0, rates[0].time, low1 - atr_value * 0.2);
+            ObjectSetInteger(0, name, OBJPROP_COLOR, clrDodgerBlue);
+            ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
+            Alert("Alerta de Compra: Ruptura confirmada de Resistencia en " + DoubleToString(level.price, _Digits));
+           }
         }
-      if(level.level_type == SUPPORT && close[0] < level.price && close[1] > level.price)
+      //--- Validación para VENTA (Ruptura de Soporte)
+      else if(level.level_type == SUPPORT)
         {
-         string name = "SR_Arrow_Sell_" + TimeToString(iTime(_Symbol, _Period, 1), TIME_MINUTES) + "_" + DoubleToString(level.price);
-         double high[];
-         CopyHigh(_Symbol, _Period, 1, 1, high);
-         ObjectCreate(0, name, OBJ_ARROW_SELL, 0, iTime(_Symbol, _Period, 1), high[0] + _Point * 10);
-         ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
+         // Filtro 1: Cruce Estricto
+         bool is_crossover = (close1 < level.price && close2 > level.price);
+         // Filtro 2: Margen de Ruptura ATR
+         bool has_margin = (close1 < (level.price - margin));
+
+         if(is_crossover && has_margin)
+           {
+            string name = "SR_Arrow_Sell_" + TimeToString(rates[0].time, TIME_MINUTES) + "_" + DoubleToString(level.price);
+            ObjectCreate(0, name, OBJ_ARROW_SELL, 0, rates[0].time, high1 + atr_value * 0.2);
+            ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
+            ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
+            Alert("Alerta de Venta: Ruptura confirmada de Soporte en " + DoubleToString(level.price, _Digits));
+           }
         }
      }
   }
