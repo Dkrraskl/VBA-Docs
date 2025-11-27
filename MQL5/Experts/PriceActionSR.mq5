@@ -13,8 +13,10 @@
 input group             "Análisis de Zonas"
 input int               InpLookBackPeriod = 500;    // Número de velas hacia atrás para analizar
 input int               InpSwingPeriod    = 5;      // Período para definir un Swing High/Low (velas a cada lado)
-input int               InpTolerancePoints= 50;     // Tolerancia en PUNTOS para agrupar y contar toques
 input int               InpMinTouches     = 3;      // Número mínimo de toques para validar una zona
+input group             "Filtro de Volatilidad (ATR)"
+input int               InpATRPeriod      = 14;     // Período para el cálculo del ATR
+input double            InpATRMultiplier  = 1.0;    // Multiplicador para la tolerancia basada en ATR
 
 //--- Definición de tipos y estructuras
 enum ENUM_LEVEL_TYPE
@@ -33,6 +35,7 @@ struct PriceLevel
 //--- Variables Globales
 datetime   g_lastBarTime;              // Almacena el tiempo de la última barra para controlar la ejecución
 PriceLevel g_validated_levels[];       // Array dinámico para almacenar las zonas validadas
+int        g_atr_handle;               // Handle para el indicador ATR
 
 //+------------------------------------------------------------------+
 //| Función de inicialización del Asesor Experto                     |
@@ -42,8 +45,16 @@ int OnInit()
 //--- Inicializar el contador de tiempo de la barra
    g_lastBarTime=0;
 
+//--- Crear el handle para el indicador ATR
+   g_atr_handle = iATR(_Symbol, _Period, InpATRPeriod);
+   if(g_atr_handle == INVALID_HANDLE)
+     {
+      Print("Error al crear el handle del indicador ATR. Código de error: ", GetLastError());
+      return(INIT_FAILED);
+     }
+
 //--- Mensaje de inicialización exitosa
-   Print("PriceActionSR EA v2.0 inicializado correctamente.");
+   Print("PriceActionSR EA v2.0 (ATR) inicializado correctamente.");
 
 //--- Ejecutar un cálculo inicial al cargar el EA
    DrawSRLevels();
@@ -58,6 +69,10 @@ void OnDeinit(const int reason)
   {
 //--- Limpiar objetos del gráfico al quitar el EA
    ObjectsDeleteAll(0, "SR_"); // Prefijo general para todos los objetos del EA
+
+//--- Liberar el handle del indicador
+   IndicatorRelease(g_atr_handle);
+
    ChartRedraw();
    Print("PriceActionSR EA desinicializado y objetos limpiados.");
   }
@@ -147,10 +162,22 @@ void DrawSRLevels()
         }
      }
 
-//--- 4. Agrupar fractales cercanos en ZONAS únicas
+//--- 4. Calcular la tolerancia dinámica basada en el ATR actual
+   double atr_buffer[];
+   if(CopyBuffer(g_atr_handle, 0, 0, 1, atr_buffer) < 1)
+     {
+      Print("Error al copiar los datos del ATR.");
+      return;
+     }
+   double current_atr = atr_buffer[0];
+   double tolerance = current_atr * InpATRMultiplier;
+
+   //--- DEBUG: Imprimir el valor del ATR actual
+   PrintFormat("ATR Actual: %.5f | Tolerancia Calculada: %.5f", current_atr, tolerance);
+
+//--- 5. Agrupar fractales cercanos en ZONAS únicas usando la tolerancia ATR
    PriceLevel grouped_levels[];
    int grouped_count = 0;
-   double tolerance = InpTolerancePoints * _Point;
 
    for(int i = 0; i < levels_count; i++)
      {
@@ -205,6 +232,10 @@ void DrawSRLevels()
    int validated_count = 0;
    for(int i = 0; i < grouped_count; i++)
      {
+      //--- DEBUG: Imprimir cada nivel candidato y sus toques
+      string level_type_str = (grouped_levels[i].level_type == SUPPORT) ? "Soporte" : "Resistencia";
+      PrintFormat("Nivel Candidato (%s) encontrado en: %.5f, Toques: %d", level_type_str, grouped_levels[i].price, grouped_levels[i].touches);
+
       if(grouped_levels[i].touches >= InpMinTouches)
         {
          ArrayResize(g_validated_levels, validated_count + 1);
@@ -315,14 +346,22 @@ void UpdateDashboard()
          resistance_count++;
      }
 
+//--- Obtener el valor del ATR actual para mostrarlo
+   double atr_buffer[];
+   string current_atr_str = "Calculating...";
+   if(CopyBuffer(g_atr_handle, 0, 0, 1, atr_buffer) > 0)
+     {
+      current_atr_str = StringFormat("%.5f", atr_buffer[0]);
+     }
+
 //--- Crear el texto del panel
    string nl = "\n"; // Nueva línea
-   string text = "--- Price Action SR v2.0 ---" + nl +
+   string text = "--- Price Action SR v3.0 (ATR) ---" + nl +
                  "Resistencias Activas: " + IntegerToString(resistance_count) + nl +
                  "Soportes Activos: " + IntegerToString(support_count) + nl +
                  "----------------------------------" + nl +
-                 "LookBack Period: " + IntegerToString(InpLookBackPeriod) + nl +
-                 "Tolerance (Points): " + IntegerToString(InpTolerancePoints);
+                 "ATR Actual: " + current_atr_str + nl +
+                 "ATR Multiplier: " + DoubleToString(InpATRMultiplier, 2);
 
 //--- Crear o actualizar el objeto de texto en el gráfico
    string name = "SR_Dashboard";
