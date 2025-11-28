@@ -70,10 +70,25 @@ int OnInit()
         return(INIT_FAILED);
     }
 
-    handleZigZag = iCustom(_Symbol, _Period, "Examples\\ZigZag", InpZigZagDepth, InpZigZagDeviation, InpZigZagBackstep);
+    string zigzag_path = "Indicators\\ZigZag"; // Intento con la ruta más estándar
+    handleZigZag = iCustom(_Symbol, _Period, zigzag_path, InpZigZagDepth, InpZigZagDeviation, InpZigZagBackstep);
+
+    // Si falla, intentar con la ruta de ejemplos
     if(handleZigZag == INVALID_HANDLE)
     {
-        printf("Error creando handle para ZigZag. Código de error: %d", GetLastError());
+        zigzag_path = "Examples\\ZigZag";
+        handleZigZag = iCustom(_Symbol, _Period, zigzag_path, InpZigZagDepth, InpZigZagDeviation, InpZigZagBackstep);
+    }
+
+    if(handleZigZag == INVALID_HANDLE)
+    {
+        Print("--- ERROR CRÍTICO DE INICIALIZACIÓN ---");
+        Print("No se pudo cargar el indicador ZigZag. El EA no puede continuar.");
+        Print("CAUSA: La ruta del indicador no es la correcta para su instalación de MetaTrader.");
+        Print("SOLUCIÓN: Abra la ventana 'Navegador' (Ctrl+N), busque el indicador ZigZag, haga clic derecho sobre él y seleccione 'Propiedades'.");
+        Print("La ruta correcta aparecerá allí. Escriba esa ruta en el código fuente del EA y recompile.");
+        Print("Rutas intentadas sin éxito: 'Indicators\\ZigZag' y 'Examples\\ZigZag'");
+        printf("Código de error final de MQL5: %d", GetLastError());
         return(INIT_FAILED);
     }
 
@@ -175,20 +190,31 @@ bool FiltrosSonValidos()
     if(hora >= (int)StringSubstr(londonPartes[0], 0, 2) && hora < (int)StringSubstr(londonPartes[1], 0, 2)) enKillzone = true;
     if(hora >= (int)StringSubstr(nyPartes[0], 0, 2) && hora < (int)StringSubstr(nyPartes[1], 0, 2)) enKillzone = true;
 
-    if(!enKillzone) return false;
+    if(!enKillzone)
+    {
+        //Print("Filtro Activo: Fuera de Killzone. Hora del servidor: ", hora);
+        return false;
+    }
 
     //--- Filtro de Spread Relativo
     double atrActual = ObtenerValorATR(1);
+    if(atrActual <= 0)
+    {
+        //Print("Filtro Activo: ATR es cero, no se puede calcular el spread relativo.");
+        return false;
+    }
+
     double spreadActual = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point;
     double maxSpreadPermitido = atrActual * (InpMaxSpreadAsAtrPercent / 100.0);
 
-    if(atrActual > 0 && spreadActual > maxSpreadPermitido)
+    if(spreadActual > maxSpreadPermitido)
     {
-       // Registrar intento fallido por spread
+       //Print(StringFormat("Filtro Activo: Spread (%.5f) > Límite (%.5f)", spreadActual, maxSpreadPermitido));
        RegistrarIntento("Filter", "Failed", 0, 0, 0, spreadActual, atrActual, "Spread_Excesivo");
        return false;
     }
 
+    //Print("Filtros OK: Dentro de Killzone y Spread aceptable.");
     return true;
 }
 
@@ -209,7 +235,10 @@ void BuscarSetupICT()
     int p0_idx, p1_idx, p2_idx;
 
     if(!ObtenerPuntosZigZag(zigzagBuffer, 100, p0_val, p0_idx, p1_val, p1_idx, p2_val, p2_idx))
+    {
+        //Print("No se encontraron 3 puntos de ZigZag. Esperando más datos...");
         return;
+    }
 
     //--- Detección de Market Structure Shift (MSS)
     // MSS Bajista: p1 es un máximo (high), p0 es un mínimo (low) que rompe por debajo del mínimo anterior p2.
@@ -220,6 +249,9 @@ void BuscarSetupICT()
 
     if(mssBajista || mssAlcista)
     {
+        string tipoMSS = mssBajista ? "Bajista" : "Alcista";
+        //Print(StringFormat("MSS %s Detectado! Buscando FVG entre velas %d y %d", tipoMSS, p0_idx, p1_idx));
+
         // Si hay MSS, buscar FVG entre el swing que causó el quiebre (entre p1 y p0)
         for(int i = p0_idx; i > p1_idx && i >= 2; i--)
         {
@@ -241,8 +273,12 @@ void BuscarSetupICT()
                         fvgActual.esValido = true;
                         fvgActual.tipo = "Bearish";
                         estadoActual = MONITOREANDO_FVG;
-                        //printf("FVG Bajista detectado en vela %d. Rango: %.5f - %.5f", i-1, fvg_bottom, fvg_top);
+                        Print(StringFormat("FVG Bajista VÁLIDO encontrado en vela %d. Rango: %.5f - %.5f", i-1, fvg_bottom, fvg_top));
                         return; // Salimos al encontrar el primer FVG válido
+                    }
+                    else
+                    {
+                        //Print(StringFormat("FVG Bajista DESCARTADO en vela %d por tamaño. Tamaño: %.5f, Mínimo: %.5f", i-1, fvg_size, min_fvg_size));
                     }
                 }
             }
@@ -264,8 +300,12 @@ void BuscarSetupICT()
                         fvgActual.esValido = true;
                         fvgActual.tipo = "Bullish";
                         estadoActual = MONITOREANDO_FVG;
-                        //printf("FVG Alcista detectado en vela %d. Rango: %.5f - %.5f", i-1, fvg_top, fvg_bottom);
+                        Print(StringFormat("FVG Alcista VÁLIDO encontrado en vela %d. Rango: %.5f - %.5f", i-1, fvg_top, fvg_bottom));
                         return; // Salimos al encontrar el primer FVG válido
+                    }
+                     else
+                    {
+                        //Print(StringFormat("FVG Alcista DESCARTADO en vela %d por tamaño. Tamaño: %.5f, Mínimo: %.5f", i-1, fvg_size, min_fvg_size));
                     }
                 }
             }
@@ -295,24 +335,39 @@ void MonitorearFVG_Y_Entrar()
     if(fvgActual.tipo == "Bearish" && velaSenal.high >= fvgActual.precioInferior) precioTocoFVG = true;
     if(fvgActual.tipo == "Bullish" && velaSenal.low <= fvgActual.precioSuperior) precioTocoFVG = true;
 
+    //Print(StringFormat("Monitoreando FVG %s. Precio actual (vela 1 high/low): %.5f/%.5f. FVG Zone: %.5f-%.5f", fvgActual.tipo, velaSenal.high, velaSenal.low, fvgActual.precioSuperior, fvgActual.precioInferior));
+
     if(precioTocoFVG)
     {
+        //Print("Precio tocó el FVG. Verificando vela de señal...");
         // Criterios para una "Vela de Señal" (Signal Bar) válida
         // 1. Es una vela de reversión (cierra en la dirección opuesta al FVG)
         // 2. Tiene un rango mayor al promedio (indica convicción)
 
         bool esVelaReversionValida = false;
+        string motivoRechazo = "";
+
         if(fvgActual.tipo == "Bearish" && velaSenal.close < velaSenal.open) esVelaReversionValida = true; // Vela bajista
-        if(fvgActual.tipo == "Bullish" && velaSenal.close > velaSenal.open) esVelaReversionValida = true; // Vela alcista
+        else if(fvgActual.tipo == "Bullish" && velaSenal.close > velaSenal.open) esVelaReversionValida = true; // Vela alcista
+        else motivoRechazo = "No es vela de reversión.";
 
         // Comprobar rango
         double rangoVelaSenal = velaSenal.high - velaSenal.low;
         double atrActual = ObtenerValorATR(1);
-        if(rangoVelaSenal < (atrActual * 0.7)) esVelaReversionValida = false; // Rango debe ser significativo
+        if(rangoVelaSenal < (atrActual * 0.7))
+        {
+            esVelaReversionValida = false; // Rango debe ser significativo
+            motivoRechazo += StringFormat(" Rango (%.5f) < Mínimo (%.5f).", rangoVelaSenal, atrActual * 0.7);
+        }
 
         if(esVelaReversionValida)
         {
-            if(PositionsTotal() > 0) return; // Ya hay una operación abierta
+            Print("Vela de Señal VÁLIDA encontrada. Procediendo a colocar orden.");
+            if(PositionsTotal() > 0)
+            {
+                //Print("Operación abortada: ya existe una posición abierta.");
+                return;
+            }
 
             double precioEntrada, sl, tp;
             double atrStop = ObtenerValorATR(1) * InpAtrSlMultiplier;
