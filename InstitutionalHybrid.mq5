@@ -70,7 +70,7 @@ int OnInit()
         return(INIT_FAILED);
     }
 
-    handleZigZag = iCustom(_Symbol, _Period, "ZigZag", InpZigZagDepth, InpZigZagDeviation, InpZigZagBackstep);
+    handleZigZag = iCustom(_Symbol, _Period, "Examples\\ZigZag", InpZigZagDepth, InpZigZagDeviation, InpZigZagBackstep);
     if(handleZigZag == INVALID_HANDLE)
     {
         printf("Error creando handle para ZigZag. Código de error: %d", GetLastError());
