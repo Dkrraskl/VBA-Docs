@@ -70,25 +70,14 @@ int OnInit()
         return(INIT_FAILED);
     }
 
-    string zigzag_path = "Indicators\\ZigZag"; // Intento con la ruta más estándar
+    // Ruta corregida basándose en la información del usuario
+    string zigzag_path = "Indicators\\Examples\\ZigZag";
     handleZigZag = iCustom(_Symbol, _Period, zigzag_path, InpZigZagDepth, InpZigZagDeviation, InpZigZagBackstep);
 
-    // Si falla, intentar con la ruta de ejemplos
     if(handleZigZag == INVALID_HANDLE)
     {
-        zigzag_path = "Examples\\ZigZag";
-        handleZigZag = iCustom(_Symbol, _Period, zigzag_path, InpZigZagDepth, InpZigZagDeviation, InpZigZagBackstep);
-    }
-
-    if(handleZigZag == INVALID_HANDLE)
-    {
-        Print("--- ERROR CRÍTICO DE INICIALIZACIÓN ---");
-        Print("No se pudo cargar el indicador ZigZag. El EA no puede continuar.");
-        Print("CAUSA: La ruta del indicador no es la correcta para su instalación de MetaTrader.");
-        Print("SOLUCIÓN: Abra la ventana 'Navegador' (Ctrl+N), busque el indicador ZigZag, haga clic derecho sobre él y seleccione 'Propiedades'.");
-        Print("La ruta correcta aparecerá allí. Escriba esa ruta en el código fuente del EA y recompile.");
-        Print("Rutas intentadas sin éxito: 'Indicators\\ZigZag' y 'Examples\\ZigZag'");
-        printf("Código de error final de MQL5: %d", GetLastError());
+        printf("Error creando handle para ZigZag con la ruta '%s'. Código de error: %d", zigzag_path, GetLastError());
+        Print("Asegúrese de que el indicador ZigZag se encuentra en la carpeta MQL5\\Indicators\\Examples\\");
         return(INIT_FAILED);
     }
 
