@@ -38,7 +38,6 @@ CTrade      trade;
 ENUM_ESTADO_EA estadoActual = FILTRADO;
 string      nombreArchivoLog;
 int         handleATR;
-int         handleZigZag;
 datetime    ultimaVelaProcesada = 0;
 
 //--- Estructura para almacenar información del Fair Value Gap (FVG)
@@ -70,16 +69,6 @@ int OnInit()
         return(INIT_FAILED);
     }
 
-    // Ruta corregida basándose en la información del usuario
-    string zigzag_path = "Indicators\\Examples\\ZigZag";
-    handleZigZag = iCustom(_Symbol, _Period, zigzag_path, InpZigZagDepth, InpZigZagDeviation, InpZigZagBackstep);
-
-    if(handleZigZag == INVALID_HANDLE)
-    {
-        printf("Error creando handle para ZigZag con la ruta '%s'. Código de error: %d", zigzag_path, GetLastError());
-        Print("Asegúrese de que el indicador ZigZag se encuentra en la carpeta MQL5\\Indicators\\Examples\\");
-        return(INIT_FAILED);
-    }
 
     //--- Configurar nombre del archivo de log
     nombreArchivoLog = "TradeLog_Institutional_Hybrid.csv";
@@ -107,7 +96,6 @@ void OnDeinit(const int reason)
 {
     //--- Liberar handles de indicadores
     IndicatorRelease(handleATR);
-    IndicatorRelease(handleZigZag);
 
     //--- Comentario final
     Comment("");
@@ -214,18 +202,20 @@ bool FiltrosSonValidos()
 void BuscarSetupICT()
 {
     MqlRates rates[];
-    if(CopyRates(_Symbol, _Period, 0, 100, rates) < 100) return; // Necesitamos suficientes velas
-
-    double zigzagBuffer[];
-    if(CopyBuffer(handleZigZag, 0, 0, 100, zigzagBuffer) < 100) return;
+    if(CopyRates(_Symbol, _Period, 0, 200, rates) < 200) return; // Necesitamos suficientes velas para el cálculo interno
 
     // Encontrar los últimos 3 puntos del ZigZag (p0=actual, p1=previo, p2=ante-previo)
     double p0_val, p1_val, p2_val;
     int p0_idx, p1_idx, p2_idx;
 
-    if(!ObtenerPuntosZigZag(zigzagBuffer, 100, p0_val, p0_idx, p1_val, p1_idx, p2_val, p2_idx))
+    // Llamar a la nueva función de cálculo interno
+    CalcularPuntosZigZagInterno(rates, InpZigZagDepth, InpZigZagDeviation, InpZigZagBackstep,
+                                p0_val, p0_idx, p1_val, p1_idx, p2_val, p2_idx);
+
+    // Pequeña validación para asegurarnos que se encontraron los puntos
+    if(p0_idx <= 0 || p1_idx <= 0 || p2_idx <= 0)
     {
-        //Print("No se encontraron 3 puntos de ZigZag. Esperando más datos...");
+        //Print("Cálculo interno de ZigZag no arrojó suficientes puntos aún.");
         return;
     }
 
@@ -558,5 +548,127 @@ void RegistrarIntento(string accion, string resultado, double precio, double sl,
         FileWriteString(handle, line + "\n");
         FileClose(handle);
     }
+}
+//+------------------------------------------------------------------+
+//| CÁLCULO INTERNO DEL ZIGZAG                                       |
+//| Esta función replica la lógica del indicador ZigZag para         |
+//| encontrar los puntos de giro (pivotes) en el precio, haciendo    |
+//| al EA auto-contenido y eliminando dependencias externas.         |
+//+------------------------------------------------------------------+
+void CalcularPuntosZigZagInterno(const MqlRates &rates[], int depth, int deviation, int backstep,
+                                 double &p0_val, int &p0_idx,
+                                 double &p1_val, int &p1_idx,
+                                 double &p2_val, int &p2_idx)
+{
+    int i, limit, shift, back;
+    double val, curlow, curhigh;
+    double lasthigh, lastlow;
+    int    lasthigh_pos, lastlow_pos;
+
+    double zigzag_buffer[];
+    ArrayResize(zigzag_buffer, ArraySize(rates));
+    ArrayInitialize(zigzag_buffer, 0.0);
+
+    limit = ArraySize(rates) - depth;
+    for(shift = limit; shift >= 0; shift--)
+    {
+        val = rates[shift].high;
+        i = shift + depth;
+        while(i > shift)
+        {
+            if(rates[i].high > val)
+                val = rates[i].high;
+            i--;
+        }
+
+        if(val == rates[shift].high)
+        {
+            back = shift + 1;
+            while(back <= shift + backstep)
+            {
+                if(rates[back].high > val)
+                    break;
+                back++;
+            }
+            if(back > shift + backstep)
+                zigzag_buffer[shift] = val;
+        }
+
+        val = rates[shift].low;
+        i = shift + depth;
+        while(i > shift)
+        {
+            if(rates[i].low < val)
+                val = rates[i].low;
+            i--;
+        }
+
+        if(val == rates[shift].low)
+        {
+            back = shift + 1;
+            while(back <= shift + backstep)
+            {
+                if(rates[back].low < val)
+                    break;
+                back++;
+            }
+            if(back > shift + backstep)
+            {
+                if(zigzag_buffer[shift] == 0.0)
+                    zigzag_buffer[shift] = val;
+            }
+        }
+    }
+
+    //--- Limpieza y refinamiento de los puntos de ZigZag
+    lasthigh = 0;
+    lastlow = 0;
+    lasthigh_pos = -1;
+    lastlow_pos = -1;
+
+    for(shift = limit; shift >= 0; shift--)
+    {
+        curhigh = rates[shift].high;
+        curlow = rates[shift].low;
+
+        if(zigzag_buffer[shift] != 0)
+        {
+            if(zigzag_buffer[shift] == curhigh)
+            {
+                if(lasthigh != 0)
+                {
+                    if(lasthigh < curhigh)
+                        zigzag_buffer[lasthigh_pos] = 0;
+                    else
+                        zigzag_buffer[shift] = 0;
+                }
+                if(zigzag_buffer[shift] != 0)
+                {
+                    lasthigh = curhigh;
+                    lasthigh_pos = shift;
+                    lastlow = 0;
+                }
+            }
+            else
+            {
+                if(lastlow != 0)
+                {
+                    if(lastlow > curlow)
+                        zigzag_buffer[lastlow_pos] = 0;
+                    else
+                        zigzag_buffer[shift] = 0;
+                }
+                if(zigzag_buffer[shift] != 0)
+                {
+                    lastlow = curlow;
+                    lastlow_pos = shift;
+                    lasthigh = 0;
+                }
+            }
+        }
+    }
+
+    // Ahora, extraemos los últimos 3 puntos del buffer calculado, igual que antes.
+    ObtenerPuntosZigZag(zigzag_buffer, ArraySize(zigzag_buffer), p0_val, p0_idx, p1_val, p1_idx, p2_val, p2_idx);
 }
 //+------------------------------------------------------------------+
