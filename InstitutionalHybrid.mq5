@@ -179,7 +179,7 @@ bool FiltrosSonValidos()
 
     //--- Filtro de Spread Relativo
     double atrActual = ObtenerValorATR(1);
-    double spreadActual = SymbolInfoDouble(_Symbol, SYMBOL_SPREAD) * _Point;
+    double spreadActual = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point;
     double maxSpreadPermitido = atrActual * (InpMaxSpreadAsAtrPercent / 100.0);
 
     if(atrActual > 0 && spreadActual > maxSpreadPermitido)
@@ -316,6 +316,7 @@ void MonitorearFVG_Y_Entrar()
 
             double precioEntrada, sl, tp;
             double atrStop = ObtenerValorATR(1) * InpAtrSlMultiplier;
+            double currentSpread = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point; // Calcular spread en unidades de precio
 
             if(fvgActual.tipo == "Bearish")
             {
@@ -328,11 +329,11 @@ void MonitorearFVG_Y_Entrar()
                 {
                    if(trade.SellStop(lotaje, precioEntrada, _Symbol, sl, tp, 0, 0, "Sell Stop Institucional"))
                    {
-                      RegistrarIntento("SellStop", "Placed", precioEntrada, sl, tp, SymbolInfoDouble(_Symbol, SYMBOL_SPREAD), atrActual, "Orden Colocada");
+                      RegistrarIntento("SellStop", "Placed", precioEntrada, sl, tp, currentSpread, atrActual, "Orden Colocada");
                    }
                    else
                    {
-                      RegistrarIntento("SellStop", "Failed", precioEntrada, sl, tp, SymbolInfoDouble(_Symbol, SYMBOL_SPREAD), atrActual, "Fallo al colocar: " + IntegerToString(trade.ResultRetcode()));
+                      RegistrarIntento("SellStop", "Failed", precioEntrada, sl, tp, currentSpread, atrActual, "Fallo al colocar: " + IntegerToString(trade.ResultRetcode()));
                    }
                 }
             }
@@ -347,11 +348,11 @@ void MonitorearFVG_Y_Entrar()
                 {
                    if(trade.BuyStop(lotaje, precioEntrada, _Symbol, sl, tp, 0, 0, "Buy Stop Institucional"))
                    {
-                       RegistrarIntento("BuyStop", "Placed", precioEntrada, sl, tp, SymbolInfoDouble(_Symbol, SYMBOL_SPREAD), atrActual, "Orden Colocada");
+                       RegistrarIntento("BuyStop", "Placed", precioEntrada, sl, tp, currentSpread, atrActual, "Orden Colocada");
                    }
                    else
                    {
-                       RegistrarIntento("BuyStop", "Failed", precioEntrada, sl, tp, SymbolInfoDouble(_Symbol, SYMBOL_SPREAD), atrActual, "Fallo al colocar: " + IntegerToString(trade.ResultRetcode()));
+                       RegistrarIntento("BuyStop", "Failed", precioEntrada, sl, tp, currentSpread, atrActual, "Fallo al colocar: " + IntegerToString(trade.ResultRetcode()));
                    }
                 }
             }
