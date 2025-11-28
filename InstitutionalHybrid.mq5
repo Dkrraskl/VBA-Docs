@@ -550,125 +550,124 @@ void RegistrarIntento(string accion, string resultado, double precio, double sl,
     }
 }
 //+------------------------------------------------------------------+
-//| CÁLCULO INTERNO DEL ZIGZAG                                       |
-//| Esta función replica la lógica del indicador ZigZag para         |
-//| encontrar los puntos de giro (pivotes) en el precio, haciendo    |
-//| al EA auto-contenido y eliminando dependencias externas.         |
+//| CÁLCULO INTERNO DEL ZIGZAG (VERSIÓN ROBUSTA Y CORREGIDA)           |
+//| Esta función, reescrita para ser bounds-safe, replica la lógica  |
+//| del indicador ZigZag para encontrar los puntos de giro (pivotes).|
 //+------------------------------------------------------------------+
 void CalcularPuntosZigZagInterno(const MqlRates &rates[], int depth, int deviation, int backstep,
                                  double &p0_val, int &p0_idx,
                                  double &p1_val, int &p1_idx,
                                  double &p2_val, int &p2_idx)
 {
-    int i, limit, shift, back;
-    double val, curlow, curhigh;
-    double lasthigh, lastlow;
-    int    lasthigh_pos, lastlow_pos;
+    p0_val=0; p0_idx=0; p1_val=0; p1_idx=0; p2_val=0; p2_idx=0;
+    int    rates_total = ArraySize(rates);
+    if(rates_total < depth) return;
 
-    double zigzag_buffer[];
-    ArrayResize(zigzag_buffer, ArraySize(rates));
-    ArrayInitialize(zigzag_buffer, 0.0);
+    double zigzag_buffer[], high_buffer[], low_buffer[];
+    ArrayResize(zigzag_buffer, rates_total);
+    ArrayResize(high_buffer, rates_total);
+    ArrayResize(low_buffer, rates_total);
 
-    limit = ArraySize(rates) - depth;
-    for(shift = limit; shift >= 0; shift--)
+    for(int i = 0; i < rates_total; i++)
     {
-        val = rates[shift].high;
-        i = shift + depth;
-        while(i > shift)
+        double highest_high = rates[i].high;
+        double lowest_low = rates[i].low;
+        int limit = MathMin(i + depth, rates_total - 1);
+        for(int k = i + 1; k <= limit; k++)
         {
-            if(rates[i].high > val)
-                val = rates[i].high;
-            i--;
+            if(rates[k].high > highest_high) highest_high = rates[k].high;
+            if(rates[k].low < lowest_low) lowest_low = rates[k].low;
         }
-
-        if(val == rates[shift].high)
-        {
-            back = shift + 1;
-            while(back <= shift + backstep)
-            {
-                if(rates[back].high > val)
-                    break;
-                back++;
-            }
-            if(back > shift + backstep)
-                zigzag_buffer[shift] = val;
-        }
-
-        val = rates[shift].low;
-        i = shift + depth;
-        while(i > shift)
-        {
-            if(rates[i].low < val)
-                val = rates[i].low;
-            i--;
-        }
-
-        if(val == rates[shift].low)
-        {
-            back = shift + 1;
-            while(back <= shift + backstep)
-            {
-                if(rates[back].low < val)
-                    break;
-                back++;
-            }
-            if(back > shift + backstep)
-            {
-                if(zigzag_buffer[shift] == 0.0)
-                    zigzag_buffer[shift] = val;
-            }
-        }
+        high_buffer[i] = highest_high;
+        low_buffer[i] = lowest_low;
     }
 
-    //--- Limpieza y refinamiento de los puntos de ZigZag
-    lasthigh = 0;
-    lastlow = 0;
-    lasthigh_pos = -1;
-    lastlow_pos = -1;
+    double last_high = 0;
+    int    last_high_pos = 0;
+    double last_low = 0;
+    int    last_low_pos = 0;
+    int    direction = 0;
 
-    for(shift = limit; shift >= 0; shift--)
+    for(int i = rates_total - 2; i >= 0; i--)
     {
-        curhigh = rates[shift].high;
-        curlow = rates[shift].low;
-
-        if(zigzag_buffer[shift] != 0)
+        //--- check for high
+        if(high_buffer[i] == rates[i].high)
         {
-            if(zigzag_buffer[shift] == curhigh)
+            bool is_high = true;
+            int back_limit = MathMin(i + backstep, rates_total - 1);
+            for(int k = i + 1; k <= back_limit; k++)
             {
-                if(lasthigh != 0)
+                if(rates[k].high > rates[i].high)
                 {
-                    if(lasthigh < curhigh)
-                        zigzag_buffer[lasthigh_pos] = 0;
-                    else
-                        zigzag_buffer[shift] = 0;
-                }
-                if(zigzag_buffer[shift] != 0)
-                {
-                    lasthigh = curhigh;
-                    lasthigh_pos = shift;
-                    lastlow = 0;
+                    is_high = false;
+                    break;
                 }
             }
-            else
+
+            if(is_high)
             {
-                if(lastlow != 0)
+                if(direction != 1)
                 {
-                    if(lastlow > curlow)
-                        zigzag_buffer[lastlow_pos] = 0;
-                    else
-                        zigzag_buffer[shift] = 0;
+                    if(last_high != 0 && last_high < rates[i].high && last_low != 0)
+                        zigzag_buffer[last_high_pos] = 0;
                 }
-                if(zigzag_buffer[shift] != 0)
+
+                if(last_high == 0 || last_high < rates[i].high)
                 {
-                    lastlow = curlow;
-                    lastlow_pos = shift;
-                    lasthigh = 0;
+                    last_high = rates[i].high;
+                    last_high_pos = i;
+                    zigzag_buffer[i] = last_high;
+                    direction = 1;
+                    if(last_low != 0)
+                    {
+                        if(last_high - last_low >= deviation * _Point)
+                        {
+                            last_low = 0;
+                        }
+                    }
+                }
+            }
+        }
+        //--- check for low
+        if(low_buffer[i] == rates[i].low)
+        {
+            bool is_low = true;
+            int back_limit = MathMin(i + backstep, rates_total - 1);
+            for(int k = i + 1; k <= back_limit; k++)
+            {
+                if(rates[k].low < rates[i].low)
+                {
+                    is_low = false;
+                    break;
+                }
+            }
+            if(is_low)
+            {
+                if(direction != -1)
+                {
+                    if(last_low != 0 && last_low > rates[i].low && last_high != 0)
+                        zigzag_buffer[last_low_pos] = 0;
+                }
+
+                if(last_low == 0 || last_low > rates[i].low)
+                {
+                    last_low = rates[i].low;
+                    last_low_pos = i;
+                    zigzag_buffer[i] = last_low;
+                    direction = -1;
+                    if(last_high != 0)
+                    {
+                        if(last_high - last_low >= deviation * _Point)
+                        {
+                            last_high = 0;
+                        }
+                    }
                 }
             }
         }
     }
 
     // Ahora, extraemos los últimos 3 puntos del buffer calculado, igual que antes.
-    ObtenerPuntosZigZag(zigzag_buffer, ArraySize(zigzag_buffer), p0_val, p0_idx, p1_val, p1_idx, p2_val, p2_idx);
+    ObtenerPuntosZigZag(zigzag_buffer, rates_total, p0_val, p0_idx, p1_val, p1_idx, p2_val, p2_idx);
 }
 //+------------------------------------------------------------------+
