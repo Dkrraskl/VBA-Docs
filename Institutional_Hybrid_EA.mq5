@@ -20,6 +20,9 @@ enum ENUM_EA_STATE
 
 //--- Inputs del Usuario
 input group "===== CONFIGURACIÓN ICT ====="
+input int       InpZigZagDepth = 12;              // ZigZag: Profundidad
+input int       InpZigZagDeviation = 5;           // ZigZag: Desviación
+input int       InpZigZagBackstep = 3;            // ZigZag: Backstep
 input double    InpMinFVGSizeATR = 0.7;           // FVG Mínimo (Múltiplo de ATR)
 input int       InpFVGLookback = 75;              // Barras para buscar FVG
 input double    InpFVGRetestTolerance = 0.2;      // Tolerancia para retest FVG (ATR)
