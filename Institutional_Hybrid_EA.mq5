@@ -59,6 +59,7 @@ input bool      InpModoDebug = true;              // Activar logs detallados
 
 //--- Variables Globales
 CTrade trade;
+ulong  expertMagicNumber = 123456;
 int handleATR;
 int handleFastEMA;
 int handleSlowEMA;
@@ -105,7 +106,7 @@ datetime ultimoDiaContado = 0;
 int OnInit()
 {
    //--- Inicializar objeto de trading
-   trade.SetExpertMagicNumber(123456);
+   trade.SetExpertMagicNumber(expertMagicNumber);
    trade.SetDeviationInPoints(50);
    trade.SetTypeFilling(ORDER_FILLING_IOC);
    trade.SetAsyncMode(false);
@@ -187,7 +188,7 @@ void GestionarTrailingStop()
       if(ticket > 0 && PositionSelectByTicket(ticket))
       {
          // Asegurarse de que la posición pertenece a este EA y a este símbolo
-         if(PositionGetInteger(POSITION_MAGIC) == trade.GetMagic() &&
+         if(PositionGetInteger(POSITION_MAGIC) == expertMagicNumber &&
             PositionGetString(POSITION_SYMBOL) == _Symbol)
          {
             double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
