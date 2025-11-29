@@ -47,7 +47,7 @@ input int       InpHoraFinLondres = 12;           // Killzone Londres: Fin (GMT)
 input int       InpHoraInicioNY = 13;             // Killzone Nueva York: Inicio (GMT)
 input int       InpHoraFinNY = 17;                // Killzone Nueva York: Fin (GMT)
 input bool      InpUsarFiltroSpread = true;       // Usar Filtro de Spread
-input double    InpMaxSpreadATRPct = 5.0;         // Spread Máximo (% del ATR)
+input double    InpMaxSpreadATRPct = 50.0;        // Spread Máximo (% ATR). Forex: 5-10, Crypto: 30-60
 input int       InpATRPeriod = 14;                // ATR: Periodo
 input int       InpMinATRPoints = 10;             // ATR Mínimo en puntos
 
@@ -559,7 +559,7 @@ void BuscarSetupICT(double atr)
     int p0_idx, p1_idx, p2_idx;
 
     // Usar el cálculo de ZigZag interno que es más robusto
-    CalcularPuntosZigZagInterno(rates, 12, 5, 3, p0_val, p0_idx, p1_val, p1_idx, p2_val, p2_idx);
+    CalcularPuntosZigZagInterno(rates, InpZigZagDepth, InpZigZagDeviation, InpZigZagBackstep, p0_val, p0_idx, p1_val, p1_idx, p2_val, p2_idx);
 
     if(p0_idx <= 0 || p1_idx <= 0 || p2_idx <= 0) return;
 
